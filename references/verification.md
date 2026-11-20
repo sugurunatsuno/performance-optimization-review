@@ -30,6 +30,7 @@
 - baseline と candidate で同じ正しい結果が出ることを確認してから性能を採用する。
 - ノイズと同等の差しかない場合は「有意な改善は未確認」と書く。統計的な有意差を根拠なく主張しない。
 - コマンド単位の大きな処理は `scripts/benchmark_commands.py` を利用できる。短い関数にはプロジェクト標準のベンチマーク環境を使う。
+- 関数単位の比較は、その関数だけを呼ぶ小さなドライバを用意し、`benchmark_commands.py` で変更前後のドライバを比較する。pytest-benchmark、cargo bench、go test -bench、BenchmarkDotNet などのベンチハーネスがあるプロジェクトでは、そちらを優先する。
 
 使用例（`CLAUDE_SKILL_DIR` が無い環境では、このファイルのあるディレクトリの絶対パスに置き換える）:
 

@@ -67,56 +67,54 @@ TOOL_INFO = {
     "dotnet-counters": (".NET のメトリクス監視", "dotnet tool install --global dotnet-counters"),
 }
 
-# (language, purpose, tool or None for language builtin, command)
+# (language, purpose, tool or None for language builtin, command, scope)
 SUGGESTIONS = [
     ("python", "CPU: 関数ごとの累積時間", None,
-     "python -m cProfile -o profile.out {entry} && python -m pstats profile.out"),
+     "python -m cProfile -o profile.out {entry} && python -m pstats profile.out", "process"),
     ("python", "CPU: サンプリング (常駐も可)", "py-spy",
-     "py-spy record -o profile.svg -- python {entry}"),
+     "py-spy record -o profile.svg -- python {entry}", "process"),
     ("python", "CPU とメモリの行別", "scalene",
-     "scalene {entry}"),
+     "scalene {entry}", "process"),
     ("python", "メモリ割り当て", "memray",
-     "memray run -o mem.bin {entry} && memray flamegraph mem.bin"),
-    ("python", "小さな式のマイクロ計測", None,
-     'python -m timeit -s "<setup>" "<statement>"'),
+     "memray run -o mem.bin {entry} && memray flamegraph mem.bin", "process"),
     ("rust", "リリースビルドと CPU サンプリング", "perf",
-     "cargo build --release && perf record -g ./target/release/{bin} && perf report"),
+     "cargo build --release && perf record -g ./target/release/{bin} && perf report", "process"),
     ("rust", "flamegraph", "cargo-flamegraph",
-     "cargo flamegraph --bin {bin}"),
+     "cargo flamegraph --bin {bin}", "process"),
     ("rust", "サンプリング", "samply",
-     "cargo build --release && samply record ./target/release/{bin}"),
+     "cargo build --release && samply record ./target/release/{bin}", "process"),
     ("rust", "命令数と呼び出し", "valgrind",
-     "cargo build --release && valgrind --tool=callgrind ./target/release/{bin} && callgrind_annotate callgrind.out.*"),
+     "cargo build --release && valgrind --tool=callgrind ./target/release/{bin} && callgrind_annotate callgrind.out.*", "process"),
     ("c", "リリースビルドと CPU サンプリング", "perf",
-     "gcc -O2 -g <src.c> -o app && perf record -g ./app && perf report"),
+     "gcc -O2 -g <src.c> -o app && perf record -g ./app && perf report", "process"),
     ("c", "命令数と呼び出し", "valgrind",
-     "gcc -O2 -g <src.c> -o app && valgrind --tool=callgrind ./app && callgrind_annotate callgrind.out.*"),
+     "gcc -O2 -g <src.c> -o app && valgrind --tool=callgrind ./app && callgrind_annotate callgrind.out.*", "process"),
     ("c", "関数別時間", "gprof",
-     "gcc -O2 -pg <src.c> -o app && ./app && gprof ./app gmon.out"),
+     "gcc -O2 -pg <src.c> -o app && ./app && gprof ./app gmon.out", "process"),
     ("go", "ベンチマークと CPU プロファイル", None,
-     "go test -bench . -benchmem -cpuprofile cpu.out ./... && go tool pprof -http=:8080 cpu.out"),
+     "go test -bench . -benchmem -cpuprofile cpu.out ./... && go tool pprof -http=:8080 cpu.out", "function"),
     ("go", "実行バイナリのサンプリング", "perf",
-     "go build -o app . && perf record -g ./app && perf report"),
+     "go build -o app . && perf record -g ./app && perf report", "process"),
     ("node", "CPU プロファイル (DevTools で開く)", None,
-     "node --cpu-prof {entry}"),
+     "node --cpu-prof {entry}", "process"),
     ("node", "V8 プロファイル", None,
-     "node --prof {entry} && node --prof-process isolate-*.log"),
+     "node --prof {entry} && node --prof-process isolate-*.log", "process"),
     ("node", "flamegraph", "0x",
-     "0x {entry}"),
+     "0x {entry}", "process"),
     ("java", "JFR (JDK 同梱)", None,
-     "java -XX:StartFlightRecording=filename=app.jfr,duration=30s -jar <app.jar>"),
+     "java -XX:StartFlightRecording=filename=app.jfr,duration=30s -jar <app.jar>", "process"),
     ("java", "サンプリング", "asprof",
-     "asprof -d 30 -f profile.html <pid>"),
+     "asprof -d 30 -f profile.html <pid>", "process"),
     ("dotnet", "トレース", "dotnet-trace",
-     "dotnet-trace collect -- dotnet run -c Release"),
+     "dotnet-trace collect -- dotnet run -c Release", "process"),
     ("dotnet", "メトリクス監視", "dotnet-counters",
-     "dotnet-counters monitor -- dotnet run -c Release"),
+     "dotnet-counters monitor -- dotnet run -c Release", "process"),
     ("any", "変更前後の比較", "hyperfine",
-     "hyperfine --warmup 3 --runs 10 '<before>' '<after>'"),
+     "hyperfine --warmup 3 --runs 10 '<before>' '<after>'", "process"),
     ("any", "1回の実行時間と最大 RSS", None,
-     "/usr/bin/time -v <command>"),
+     "/usr/bin/time -v <command>", "process"),
     ("any", "CPU カウンタの要約", "perf",
-     "perf stat -d <command>"),
+     "perf stat -d <command>", "process"),
 ]
 
 
@@ -172,11 +170,74 @@ def find_tools() -> dict[str, str | None]:
     return {name: shutil.which(name) for name in TOOL_INFO}
 
 
+def read_text(root: Path, names: list[str]) -> str:
+    chunks = []
+    for name in names:
+        path = root / name
+        if path.is_file():
+            try:
+                chunks.append(path.read_text(encoding="utf-8", errors="ignore"))
+            except OSError:
+                pass
+    return "\n".join(chunks)
+
+
+def function_suggestions(root: Path, languages: set[str]) -> list[dict]:
+    """Bench harnesses that time one function or one test, not the whole process."""
+    found: list[tuple[str, str, str]] = []
+
+    if "python" in languages:
+        deps = read_text(
+            root,
+            ["pyproject.toml", "requirements.txt", "setup.py", "setup.cfg", "Pipfile"],
+        )
+        if "pytest-benchmark" in deps:
+            found.append(("python", "関数/テスト単位: pytest-benchmark", "python -m pytest --benchmark-only"))
+        if "pytest" in deps or (root / "tests").is_dir():
+            found.append(("python", "関数/テスト単位: 各テストの所要時間", "python -m pytest --durations=10"))
+        found.append(
+            ("python", "単一関数の反復計測: timeit",
+             'python -m timeit -s "from <module> import <func>" "<func>(<args>)"')
+        )
+
+    if "rust" in languages:
+        cargo = read_text(root, ["Cargo.toml"])
+        if "criterion" in cargo or "[[bench]]" in cargo or (root / "benches").is_dir():
+            found.append(("rust", "関数/ベンチ単位: criterion", "cargo bench"))
+
+    if "node" in languages:
+        try:
+            package = json.loads((root / "package.json").read_text(encoding="utf-8"))
+            scripts = package.get("scripts", {})
+            bench = next((name for name in scripts if "bench" in name.lower()), None)
+            if bench:
+                found.append(("node", f"関数/ベンチ単位: npm script '{bench}'", f"npm run {bench}"))
+        except (OSError, ValueError):
+            pass
+
+    if "dotnet" in languages:
+        csproj = read_text(root, [p.name for p in root.glob("*.csproj")])
+        if "BenchmarkDotNet" in csproj:
+            found.append(("dotnet", "関数単位: BenchmarkDotNet", "dotnet run -c Release"))
+
+    return [
+        {
+            "language": language,
+            "purpose": purpose,
+            "tool": None,
+            "tool_installed": True,
+            "scope": "function",
+            "command": command,
+        }
+        for language, purpose, command in found
+    ]
+
+
 def build_suggestions(languages: set[str], root: Path, tools: dict[str, str | None]) -> list[dict]:
     entry = guess_entry(root, ["main.py", "app.py", "run.py", "<script.py>"])
     bin_name = cargo_bin(root)
     result = []
-    for lang, purpose, tool, command in SUGGESTIONS:
+    for lang, purpose, tool, command, scope in SUGGESTIONS:
         if lang != "any" and lang not in languages:
             continue
         result.append(
@@ -185,6 +246,7 @@ def build_suggestions(languages: set[str], root: Path, tools: dict[str, str | No
                 "purpose": purpose,
                 "tool": tool,
                 "tool_installed": tool is None or bool(tools.get(tool)),
+                "scope": scope,
                 "command": command.format(entry=entry, bin=bin_name),
             }
         )
@@ -208,7 +270,7 @@ def main() -> int:
     }
     languages = {lang for lang in root_marker_langs if lang} | set(counts)
     tools = find_tools()
-    all_suggestions = build_suggestions(languages, root, tools)
+    all_suggestions = build_suggestions(languages, root, tools) + function_suggestions(root, languages)
     suggestions = [s for s in all_suggestions if s["tool_installed"]]
     missing = [
         {"tool": tool, "purpose": TOOL_INFO[tool][0], "install": TOOL_INFO[tool][1]}
@@ -258,7 +320,8 @@ def main() -> int:
 
     print("\n## 提案コマンド")
     for suggestion in suggestions:
-        print(f"[{suggestion['language']}] {suggestion['purpose']}")
+        scope = "関数単位" if suggestion["scope"] == "function" else "全体"
+        print(f"[{suggestion['language']}/{scope}] {suggestion['purpose']}")
         print(f"  {suggestion['command']}")
 
     if missing:

@@ -49,6 +49,41 @@ class DetectProfilersTests(unittest.TestCase):
         (project / "main.py").write_text("print('x')\n", encoding="utf-8")
         return project
 
+    def test_function_level_python_suggestions(self) -> None:
+        project = self.make_python_project()
+        (project / "tests").mkdir()
+        (project / "pyproject.toml").write_text(
+            '[project]\ndependencies = ["pytest", "pytest-benchmark"]\n', encoding="utf-8"
+        )
+        proc = run(str(project), path="")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("pytest --benchmark-only", proc.stdout)
+        self.assertIn("pytest --durations=10", proc.stdout)
+        self.assertIn("timeit", proc.stdout)
+        self.assertIn("関数単位", proc.stdout)
+
+    def test_function_level_rust_bench(self) -> None:
+        project = self.root / "rustbench"
+        (project / "src").mkdir(parents=True)
+        (project / "benches").mkdir()
+        (project / "Cargo.toml").write_text(
+            '[package]\nname = "mytool"\nversion = "0.1.0"\n', encoding="utf-8"
+        )
+        (project / "src" / "main.rs").write_text("fn main() {}\n", encoding="utf-8")
+        proc = run(str(project), path="")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("cargo bench", proc.stdout)
+
+    def test_function_level_node_bench_script(self) -> None:
+        project = self.root / "nodeproj"
+        project.mkdir()
+        (project / "package.json").write_text(
+            '{"scripts": {"bench": "node bench.js"}}', encoding="utf-8"
+        )
+        proc = run(str(project), path="")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("npm run bench", proc.stdout)
+
     def test_python_project_gets_builtin_suggestions(self) -> None:
         project = self.make_python_project()
         proc = run(str(project), path="")
@@ -86,6 +121,7 @@ class DetectProfilersTests(unittest.TestCase):
         self.assertEqual(data["languages"]["python"]["markers"], ["pyproject.toml"])
         for suggestion in data["suggestions"]:
             self.assertTrue(suggestion["tool"] is None or suggestion["tool_installed"])
+        self.assertIn("function", {s["scope"] for s in data["suggestions"]})
         missing_tools = {item["tool"] for item in data["missing"]}
         self.assertIn("py-spy", missing_tools)
 

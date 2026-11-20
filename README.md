@@ -35,6 +35,8 @@ python3 "${CLAUDE_SKILL_DIR}/scripts/detect_profilers.py" . --json
 
 言語（Python / Rust / Go / Node / Java / .NET / C・C++）と導入済みのプロファイラ（perf, valgrind, py-spy, samply など）を調べ、その環境で実行できるコマンドだけを出す。未導入のツールは導入手順だけ示す。
 
+各提案は `scope` を持つ。`process` はプロセス全体、`function` は関数・テスト単位。関数単位は、pytest-benchmark / pytest --durations / timeit / cargo bench / go test -bench / BenchmarkDotNet など、プロジェクトに設定があれば検出する。
+
 候補の一次スキャン（ヒューリスティック。ヒットは根拠ではなく、確認する場所の一覧）:
 
 ```bash
