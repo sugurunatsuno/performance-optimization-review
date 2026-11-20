@@ -101,7 +101,7 @@ fn bench<F: FnMut() -> i64>(name: &str, mut f: F) {
         checksum = f();
         samples.push(start.elapsed().as_secs_f64() * 1000.0);
     }
-    println!("RESULT {} {:.3} {}", name, median_ms(samples), checksum);
+    println!("RESULT {} {:.6} {}", name, median_ms(samples), checksum);
 }
 
 fn main() {
