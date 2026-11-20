@@ -70,5 +70,72 @@ class BenchmarkCommandTests(unittest.TestCase):
         self.assertIn("must not be empty", proc.stderr)
 
 
+    @staticmethod
+    def result_command(case: str, milliseconds: str, checksum: str) -> str:
+        code = f'print("RESULT {case} {milliseconds} {checksum}")'
+        return shlex.join([sys.executable, "-c", code])
+
+    def test_numeric_output_tolerates_finite_time_difference(self) -> None:
+        base = self.result_command("matmul", "10.0", "42")
+        cand = self.result_command("matmul", "10.004", "42")
+        proc = run(*fast_args(base, cand, "--verify-numeric-stdout",
+                              "--rtol", "0.001", "--atol", "0", "--json"))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        data = json.loads(proc.stdout)
+        self.assertEqual(data["numeric_tolerances"], {"rtol": 0.001, "atol": 0.0})
+
+    def test_numeric_output_rejects_large_difference(self) -> None:
+        base = self.result_command("case", "10.0", "42")
+        cand = self.result_command("case", "10.1", "42")
+        proc = run(*fast_args(base, cand, "--verify-numeric-stdout", "--rtol", "0.001"))
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("numeric stdout mismatch", proc.stderr)
+        self.assertIn("baseline=10.0 candidate=10.1", proc.stderr)
+
+    def test_numeric_output_keeps_integer_checksum_and_labels_exact(self) -> None:
+        base = self.result_command("case", "10", "42")
+        for case, checksum in [("case", "43"), ("different", "42")]:
+            with self.subTest(case=case, checksum=checksum):
+                cand = self.result_command(case, "10", checksum)
+                proc = run(*fast_args(base, cand, "--verify-numeric-stdout",
+                                      "--atol", "100000"))
+                self.assertEqual(proc.returncode, 1, proc.stdout)
+
+    def test_numeric_output_rejects_invalid_numeric_and_structure(self) -> None:
+        base = self.result_command("case", "1", "42")
+        bads = [
+            self.result_command("case", "nan", "42"),
+            self.result_command("case", "inf", "42"),
+            self.result_command("case", "0", "42"),
+            self.result_command("case", "2", "42.0"),
+            shlex.join([sys.executable, "-c", 'print("case 1 42")']),
+            shlex.join([sys.executable, "-c", 'print("RESULT case 1 42\\nRESULT case 2 42")']),
+        ]
+        for cand in bads:
+            with self.subTest(cand=cand):
+                self.assertEqual(run(*fast_args(base, cand, "--verify-numeric-stdout",
+                                                "--atol", "100")).returncode, 1)
+
+    def test_numeric_mode_arguments_are_checked(self) -> None:
+        base = self.result_command("case", "10", "42")
+        for extra in [
+            ("--rtol", "-0.1", "--verify-numeric-stdout"),
+            ("--atol", "nan", "--verify-numeric-stdout"),
+            ("--rtol", "0.1"),
+            ("--verify-stdout", "--verify-numeric-stdout"),
+        ]:
+            with self.subTest(extra=extra):
+                proc = run(*fast_args(base, base, *extra))
+                self.assertEqual(proc.returncode, 2)
+
+    def test_numeric_output_checks_baseline_between_repeats(self) -> None:
+        # All runs must agree with the initial baseline: this test checks
+        # that numeric mode also verifies the unchanging RESULT structure.
+        base = self.result_command("case", "10", "42")
+        proc = run(*fast_args(base, base, "--verify-numeric-stdout",
+                              "--repeat", "2", "--atol", "0"))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

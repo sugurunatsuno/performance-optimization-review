@@ -59,6 +59,17 @@ python3 "${CLAUDE_SKILL_DIR}/scripts/benchmark_commands.py" \
   --warmup 2 --repeat 9 --verify-stdout
 ```
 
+
+数値出力が `RESULT <case> <milliseconds> <integer-checksum>` 形式の場合だけ、明示した許容誤差で比較できる:
+
+```bash
+python3 scripts/benchmark_commands.py \
+  --baseline './baseline' --candidate './optimized' \
+  --verify-numeric-stdout --rtol 1e-6 --atol 1e-9 --repeat 9
+```
+
+許容誤差は実務の数値契約に応じて指定する。名前/ケース数/順序/整数checksumは厳密一致。時間値がNaN/Inf/ゼロ以下なら失敗。通常の `--verify-stdout` は従来どおりバイト単位で一致を確認する。数値モードはRESULT形式以外の任意テキスト/JSONには使用できない。
+
 `CLAUDE_SKILL_DIR` が無い環境では、スキルディレクトリの絶対パスに置き換える。
 
 ## テスト
