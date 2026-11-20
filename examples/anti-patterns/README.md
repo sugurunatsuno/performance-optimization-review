@@ -110,3 +110,11 @@ C の `sum2d` は 72 MB の 1 パス走査が DRAM 帯域律速で、走査順�
 - スキル本文の言語非依存の原則（計測、正しさ、レイアウト、確保）は有効で、
   追加 6 言語でも 24 ケース中 23 ケースで改善（Scala の `alloc` は 1.0x）。
   ただし JVM/Node は JIT・GC のため、同一言語内でも実行ごとの変動が大きい。
+
+## CIでの正確性検証
+
+`.github/workflows/tests.yml` の `benchmark-correctness` ジョブは、PR/push時にPython/C/Rust/JavaScript/TypeScriptを言語別マトリクスで実行する。checksum/配列結果の不一致や欠落ケースはエラーとしてCIを失敗させる。各言語の結果表はArtifactsから確認できる。
+
+共有ランナーの速度比は環境負荷の影響を受けるため、正確性のみを必須条件とし、速度比の上下だけでCIを落とさない。Pythonの浮動小数点比較は既存の `rtol=1e-13, atol=1e-13` を維持する。CのOpenMPはCIで2スレッドに制限する。
+
+JVM/.NET/Kotlin/Scalaの追加ケースはローカルの `mise install` / `run_all.sh` で実行する（CIの初期マトリクスには含めない）。公開ランナーの速度を以前のローカル環境の倍率と直接比較しない。

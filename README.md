@@ -66,3 +66,7 @@ python3 "${CLAUDE_SKILL_DIR}/scripts/benchmark_commands.py" \
 ```bash
 python3 -m unittest discover -s tests
 ```
+
+## CIでのベンチマーク正確性検証
+
+PRとpushでPython/C/Rust/JavaScript/TypeScriptのbaseline/optimizedを実行し、結果の一致を検証する。比較ログはGitHub ActionsのArtifactsで確認できる。速度比は参考値として記録し、共有ランナーの揺らぎのみでCIを失敗させない。その他の言語は `examples/anti-patterns/README.md` を参照。

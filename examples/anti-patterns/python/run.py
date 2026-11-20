@@ -30,6 +30,7 @@ def main() -> int:
         return 2
 
     print(f"{'case':<14}{'base_ms':>10}{'opt_ms':>10}{'speedup':>9}  match")
+    failed = False
     for name, (base_fn, args, reps) in baseline.CASES.items():
         opt_fn = optimized.CASES[name][0]
         base_times, opt_times = [], []
@@ -47,7 +48,8 @@ def main() -> int:
         opt_med = statistics.median(opt_times) * 1000
         base_arr = np.asarray(base_result)
         opt_arr = np.asarray(opt_result)
-        close = np.allclose(base_arr, opt_arr, rtol=1e-13, atol=1e-13)
+        close = (base_arr.shape == opt_arr.shape and
+                 np.allclose(base_arr, opt_arr, rtol=1e-13, atol=1e-13))
         exact = np.array_equal(base_arr, opt_arr)
         match = "exact" if exact else ("close" if close else "DIFF")
         print(
@@ -55,11 +57,18 @@ def main() -> int:
             f"{base_med / opt_med:>8.1f}x  {match}"
         )
         if not close:
-            print(
-                f"  max abs diff={np.max(np.abs(base_arr - opt_arr))}",
-                file=sys.stderr,
-            )
-    return 0
+            failed = True
+            if base_arr.shape == opt_arr.shape:
+                print(
+                    f"  {name}: max abs diff={np.max(np.abs(base_arr - opt_arr))}",
+                    file=sys.stderr,
+                )
+            else:
+                print(
+                    f"  {name}: shape mismatch: baseline={base_arr.shape}, optimized={opt_arr.shape}",
+                    file=sys.stderr,
+                )
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":

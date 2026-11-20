@@ -1,8 +1,9 @@
-name: Python unit tests
+name: Python unit tests and benchmark correctness
 
 on:
   push:
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -16,3 +17,50 @@ jobs:
         with:
           python-version: "3.11"
       - run: python3 -m unittest discover -s tests -v
+
+  benchmark-correctness:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [python, c, rust, javascript, typescript]
+    env:
+      OMP_NUM_THREADS: "2"
+      OPENBLAS_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/setup-node@v4
+        if: matrix.language == 'javascript' || matrix.language == 'typescript'
+        with:
+          node-version: "22"
+      - name: Install NumPy
+        if: matrix.language == 'python'
+        run: python3 -m pip install -r examples/anti-patterns/python/requirements.txt
+      - name: Install TypeScript dependencies
+        if: matrix.language == 'typescript'
+        run: npm ci --prefix examples/anti-patterns/typescript
+      - name: Record toolchain
+        shell: bash
+        run: |
+          echo "language=${{ matrix.language }}"
+          python3 --version
+          if [[ "${{ matrix.language }}" == "c" ]]; then gcc --version | head -1; fi
+          if [[ "${{ matrix.language }}" == "rust" ]]; then rustc --version; fi
+          if [[ "${{ matrix.language }}" == "javascript" || "${{ matrix.language }}" == "typescript" ]]; then node --version; fi
+      - name: Validate baseline and optimized results
+        shell: bash
+        run: |
+          bash "examples/anti-patterns/${{ matrix.language }}/run.sh" \
+            | tee "benchmark-${{ matrix.language }}.txt"
+      - name: Upload comparison log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-${{ matrix.language }}
+          path: benchmark-${{ matrix.language }}.txt
+          if-no-files-found: ignore
+          retention-days: 7
