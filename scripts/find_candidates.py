@@ -19,7 +19,7 @@ LANG_BY_EXT = {
     ".py": "python",
     ".pyx": "python",
     ".pyi": "python",
-    ".jl": "python",  # indentation blocks, like Python
+    ".jl": "julia",  # keep indentation heuristic, but exclude NumPy rules
     ".c": "c",
     ".h": "c",
     ".cc": "c",
@@ -27,17 +27,17 @@ LANG_BY_EXT = {
     ".cxx": "c",
     ".hpp": "c",
     ".hh": "c",
-    ".rs": "c",
-    ".go": "c",
-    ".java": "c",
-    ".js": "c",
-    ".jsx": "c",
-    ".ts": "c",
-    ".tsx": "c",
-    ".cs": "c",
-    ".kt": "c",
-    ".kts": "c",
-    ".swift": "c",
+    ".rs": "braces",
+    ".go": "braces",
+    ".java": "braces",
+    ".js": "braces",
+    ".jsx": "braces",
+    ".ts": "braces",
+    ".tsx": "braces",
+    ".cs": "braces",
+    ".kt": "braces",
+    ".kts": "braces",
+    ".swift": "braces",
 }
 SKIP_DIRS = {
     ".git", ".hg", ".svn", "node_modules", "target", "build", "dist", "out",
@@ -95,6 +95,94 @@ RULES = [
     ),
 ]
 
+
+# (rule, priority, pattern, advice, minimum loop depth).
+# A source match identifies a review candidate, not a proven optimization.
+# Keep C/C++-specific rules away from other brace-delimited languages.
+ARRAY_RULES = {
+    "python": [
+        (
+            "python-elementwise-loop", 2,
+            re.compile(r"\b[A-Za-z_]\w*\s*\[\s*[A-Za-z_]\w*\s*\]\s*(?:[+\-*/]?=)(?!=)"),
+            "配列要素への反復代入。NumPy 等の連続配列なら ufunc/broadcasting を比較。"
+            "リストや依存のあるループは自動変換しない",
+            1,
+        ),
+        (
+            "numpy-vectorize", 2,
+            re.compile(r"\b(?:np|numpy)\s*\.\s*vectorize\s*\("),
+            "np.vectorize は通常 SIMD 高速化ではない。ufunc/broadcasting/Numba 等を計測して比較",
+            0,
+        ),
+        (
+            "numpy-column-slice", 2,
+            re.compile(r"\b[A-Za-z_]\w*\s*\[\s*:\s*,\s*[A-Za-z_]\w*\s*\]"),
+            "列アクセスのストライドを実配列で確認。転置/レイアウト変更はコピー費用も計測",
+            1,
+        ),
+        (
+            "numpy-copy-in-loop", 1,
+            re.compile(
+                r"\b(?:np|numpy)\s*\.\s*"
+                r"(?:array|copy|ascontiguousarray|asfortranarray|concatenate|stack)\s*\("
+            ),
+            "ループ内の配列生成/コピーの可能性。dtype/順序/所有権を守り再利用や一括処理を検討",
+            1,
+        ),
+        (
+            "numba-parallel-vector-review", 2,
+            re.compile(r"\bprange\s*\("),
+            "prange の反復間依存と reduction を確認。連続アクセス/内側 SIMD/スレッド競合も計測",
+            0,
+        ),
+        (
+            "array-2d-access", 2,
+            re.compile(
+                r"\b[A-Za-z_]\w*\s*(?:"
+                r"\[[^\]\n]+\]\s*\[[^\]\n]+\]"
+                r"|\[\s*[A-Za-z_]\w*\s*,\s*[A-Za-z_]\w*\s*\])"
+            ),
+            "多次元配列の走査順。C/F order と strides を確認し、必要ならタイル化を比較",
+            2,
+        ),
+    ],
+    "c": [
+        (
+            "openmp-parallel-vector-review", 2,
+            re.compile(r"#\s*pragma\s+omp\s+parallel\s+for\b(?![^\n]*\bsimd\b)"),
+            "OpenMP の外側分割と内側 SIMD の併用候補。依存/false sharing/帯域を確認",
+            0,
+        ),
+        (
+            "c-elementwise-loop", 3,
+            re.compile(r"\b[A-Za-z_]\w*\s*\[\s*[A-Za-z_]\w*\s*\]\s*(?:[+\-*/]?=)(?!=)"),
+            "要素単位ループ。連続アクセスと依存を調べ、コンパイラのベクトル化レポートを確認",
+            1,
+        ),
+        (
+            "aos-field-access", 2,
+            re.compile(r"\b[A-Za-z_]\w*\s*\[[^\]\n]+\]\s*(?:\.|->)\s*[A-Za-z_]\w*"),
+            "AoS のフィールド参照。SoA 変更は使用パターン/ABI/変換費用を確認して比較",
+            1,
+        ),
+        (
+            "array-2d-access", 2,
+            re.compile(r"\b[A-Za-z_]\w*\s*\[[^\]\n]+\]\s*\[[^\]\n]+\]"),
+            "多次元アクセス。行列の配置/走査順/ストライドを確認してタイル化を比較",
+            2,
+        ),
+        (
+            "strided-index", 2,
+            re.compile(
+                r"\b[A-Za-z_]\w*\s*\[\s*[A-Za-z_]\w*\s*\*\s*"
+                r"(?:stride|step|pitch|ld)\w*\s*\]"
+            ),
+            "ストライド付きアクセス。SIMD の gather 費用と連続配置への変更費用を比較",
+            1,
+        ),
+    ],
+}
+
 LOOP_RE = re.compile(r"\b(?:for|while)\b")
 
 
@@ -103,7 +191,7 @@ def indent_of(line: str) -> int:
 
 
 def strip_comment(line: str, lang: str) -> str:
-    if lang == "python":
+    if lang in ("python", "julia"):
         idx = line.find("#")
         return line if idx < 0 else line[:idx]
     for marker in ("//", "/*"):
@@ -132,7 +220,7 @@ def block_end(code_lines: list[str], start: int, lang: str) -> int:
         return match_brace(code_lines, start)
     j = start + 1
     n = len(code_lines)
-    if lang != "python":
+    if lang not in ("python", "julia"):
         while j < n and not code_lines[j].strip():
             j += 1
         return j if j < n else start
@@ -184,6 +272,18 @@ def scan_lines(lines: list[str], lang: str) -> list[dict]:
         depth = depths[idx]
         for rule, priority, pattern, advice in RULES:
             if pattern.search(line):
+                findings.append(
+                    {
+                        "rule": rule,
+                        "priority": priority,
+                        "line": idx,
+                        "loop_depth": depth,
+                        "code": raw.strip()[:160],
+                        "advice": advice,
+                    }
+                )
+        for rule, priority, pattern, advice, min_depth in ARRAY_RULES.get(lang, ()):
+            if depth >= min_depth and pattern.search(line):
                 findings.append(
                     {
                         "rule": rule,

@@ -1,6 +1,6 @@
 # performance-optimization-review
 
-計測に基づいて既存コードを高速化する Agent Skill。プロファイリングでボトルネックを特定し、計算量・メモリアクセス・演算・アロケーションの順に候補を検討し、小さな差分で実装して、正しさと速度を同じ条件で検証する。
+計測に基づいて既存コードを高速化する Agent Skill。プロファイリングでボトルネックを特定し、計算量・メモリアクセス・配列のベクトル化・データ配置・並列化とSIMDの併用などの候補を検討し、小さな差分で実装して、正しさと速度を同じ条件で検証する。
 
 「速くして」と言われたときに、根拠のない演算子置換ではなく実測を伴う最適化を行うためのスキル。浮動小数点の同値性や行優先/列優先の取り違えなど、高速化で壊しやすい箇所を明示的に禁止・確認する。
 
@@ -10,6 +10,7 @@
 SKILL.md                    本体（原則、作業手順、報告形式）
 references/
   optimization-catalog.md   最適化候補の判定基準
+  array-vectorization.md    配列のベクトル化 / データ配置 / 並列化との併用
   verification.md           正しさ・ベンチマークの検証基準
 scripts/
   find_candidates.py        機械的な候補の一次スキャン
@@ -38,6 +39,8 @@ python3 "${CLAUDE_SKILL_DIR}/scripts/detect_profilers.py" . --json
 各提案は `scope` を持つ。`process` はプロセス全体、`function` は関数・テスト単位。関数単位は、pytest-benchmark / pytest --durations / timeit / cargo bench / go test -bench / BenchmarkDotNet など、プロジェクトに設定があれば検出する。
 
 候補の一次スキャン（ヒューリスティック。ヒットは根拠ではなく、確認する場所の一覧）:
+
+配列ループ、`np.vectorize`、ループ内の配列コピー、列方向アクセス、AoS のフィールド参照、OpenMP / Numba の並列ループなどもレビュー候補として検出する。速度向上を自動判定/自動変換するものではない。
 
 ```bash
 python3 "${CLAUDE_SKILL_DIR}/scripts/find_candidates.py" src/ --limit 100
