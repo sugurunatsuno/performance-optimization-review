@@ -83,7 +83,9 @@ void f(double *out, const double *a, Point *pts, int n, int stride) {
                 "fn main() {\nfor i in 0..10 {\nvalues[i] = objects[i].x;\n}\n}\n",
                 encoding="utf-8",
             )
-            self.assertEqual(MODULE.scan_file(root / "example.rs"), [])
+            rules = {f["rule"] for f in MODULE.scan_file(root / "example.rs")}
+            self.assertIn("aos-field-access", rules)
+            self.assertNotIn("c-elementwise-loop", rules)
 
     def test_julia_does_not_get_numpy_advice(self) -> None:
         with tempfile.TemporaryDirectory() as folder:
