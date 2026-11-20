@@ -2,7 +2,7 @@
 name: performance-optimization-review
 description: "既存コードの実行速度を検査し、プロファイリング、演算回数の削減、ループ不変式の移動、除算と逆数乗算、行優先/列優先のメモリアクセス、キャッシュ効率、アロケーション削減などの高速化候補を安全に実装して検証する。コードの高速化、性能レビュー、ホットループ改善、ベンチマーク、計算結果を維持した最適化を求められたときに使う。Also use for performance work: profiling, hot-loop and memory-access optimization, cache efficiency, reducing allocations, benchmarking before/after changes, or reviewing code for speed. 単なるコード整形や速度に関係しないレビューには使わない。Do not use for formatting-only changes or reviews unrelated to speed."
 metadata:
-  version: "0.3.0"
+  version: "0.4.0"
 ---
 
 # Performance optimization review
@@ -31,6 +31,7 @@ metadata:
 
 ### ベースラインを取得する
 
+- `scripts/detect_profilers.py` で利用可能な計測ツールと提案コマンドを確認し、言語と目的に合うものを実行する。未導入のツールは必要性と導入方法を示し、許可を得てから使う。
 - テストやビルドを実行し、成功/失敗を記録する。テストがなければ最小限の回帰ケースを用意する。
 - 適切なプロファイラや計測点があれば使い、CPU 時間、割り当て、キャッシュミス、I/O 待ちなどでボトルネックを探す。
 - 実際に使うデータサイズや入力分布で比較する。代表的な小/大データ、境界値、空入力、ゼロ、負値などを含める。
