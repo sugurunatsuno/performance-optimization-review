@@ -262,7 +262,7 @@ def line_depths(ranges: list[tuple[int, int]], line_count: int) -> list[int]:
 
 
 
-def scan_python_ast(lines: list[str]) -> list[dict]:
+def scan_python_ast(lines: list[str]) -> list[dict] | None:
     """Find Python candidates from syntax, not text inside strings or comments.
 
     Returns None for unsupported syntax (e.g. Cython source), handled by the
@@ -275,7 +275,7 @@ def scan_python_ast(lines: list[str]) -> list[dict]:
 
     generic = {rule: (priority, advice) for rule, priority, _, advice in RULES}
     arrays = {rule: (priority, advice) for rule, priority, _, advice, _ in ARRAY_RULES["python"]}
-    specs = {**generic, **arrays}
+    specs = {**generic, **arrays, "deep-nesting": (2, "3重以上のループ。計算量の削減やブロッキングを検討")}
     findings: dict[tuple[int, str], dict] = {}
 
     class Visitor(ast.NodeVisitor):
