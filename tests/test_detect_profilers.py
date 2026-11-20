@@ -91,6 +91,7 @@ class DetectProfilersTests(unittest.TestCase):
         self.assertIn("cProfile", proc.stdout)
         self.assertIn("main.py", proc.stdout)
         self.assertIn("未導入の候補", proc.stdout)
+        self.assertNotIn("/usr/bin/time", proc.stdout)
 
     def test_installed_tool_is_suggested(self) -> None:
         project = self.make_python_project()

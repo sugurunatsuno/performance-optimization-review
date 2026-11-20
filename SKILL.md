@@ -2,7 +2,7 @@
 name: performance-optimization-review
 description: "既存コードの実行速度を検査し、プロファイリング、演算回数の削減、ループ不変式の移動、除算と逆数乗算、行優先/列優先のメモリアクセス、キャッシュ効率、アロケーション削減などの高速化候補を安全に実装して検証する。コードの高速化、性能レビュー、ホットループ改善、ベンチマーク、計算結果を維持した最適化を求められたときに使う。Also use for performance work: profiling, hot-loop and memory-access optimization, cache efficiency, reducing allocations, benchmarking before/after changes, or reviewing code for speed. 単なるコード整形や速度に関係しないレビューには使わない。Do not use for formatting-only changes or reviews unrelated to speed."
 metadata:
-  version: "0.5.0"
+  version: "0.5.1"
 ---
 
 # Performance optimization review

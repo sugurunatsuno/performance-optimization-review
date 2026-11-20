@@ -113,59 +113,75 @@ def strip_comment(line: str, lang: str) -> str:
     return line
 
 
-def match_brace(lines: list[str], start: int, lang: str) -> int:
+def match_brace(code_lines: list[str], start: int) -> int:
     depth = 0
-    for j in range(start, len(lines)):
-        for ch in strip_comment(lines[j], lang):
+    for j in range(start, len(code_lines)):
+        for ch in code_lines[j]:
             if ch == "{":
                 depth += 1
             elif ch == "}":
                 depth -= 1
                 if depth == 0:
                     return j
-    return len(lines) - 1
+    return len(code_lines) - 1
 
 
-def block_end(lines: list[str], start: int, lang: str) -> int:
-    line = strip_comment(lines[start], lang)
+def block_end(code_lines: list[str], start: int, lang: str) -> int:
+    line = code_lines[start]
     if "{" in line:
-        return match_brace(lines, start, lang)
+        return match_brace(code_lines, start)
     j = start + 1
-    n = len(lines)
+    n = len(code_lines)
     if lang != "python":
-        while j < n and not lines[j].strip():
+        while j < n and not code_lines[j].strip():
             j += 1
         return j if j < n else start
-    base = indent_of(lines[start])
+    base = indent_of(code_lines[start])
     last = start
     while j < n:
-        if lines[j].strip():
-            if indent_of(lines[j]) <= base:
+        if code_lines[j].strip():
+            if indent_of(code_lines[j]) <= base:
                 break
             last = j
         j += 1
     return last
 
 
-def loop_ranges(lines: list[str], lang: str) -> list[tuple[int, int]]:
+def loop_ranges(code_lines: list[str], lang: str) -> list[tuple[int, int]]:
     ranges = []
-    for i, raw in enumerate(lines):
-        if not LOOP_RE.search(strip_comment(raw, lang)):
+    for i, line in enumerate(code_lines):
+        if not LOOP_RE.search(line):
             continue
-        end = block_end(lines, i, lang)
+        end = block_end(code_lines, i, lang)
         if end > i:
             ranges.append((i + 1, end + 1))  # 1-based inclusive
     return ranges
 
 
+def line_depths(ranges: list[tuple[int, int]], line_count: int) -> list[int]:
+    """Loop nesting depth per line (1-based). One pass instead of per-line scans."""
+    delta = [0] * (line_count + 2)
+    for start, end in ranges:
+        delta[start] += 1
+        delta[end + 1] -= 1
+    depths = [0] * (line_count + 2)
+    running = 0
+    for i in range(1, line_count + 1):
+        running += delta[i]
+        depths[i] = running
+    return depths
+
+
 def scan_lines(lines: list[str], lang: str) -> list[dict]:
-    ranges = loop_ranges(lines, lang)
+    code_lines = [strip_comment(raw, lang) for raw in lines]
+    ranges = loop_ranges(code_lines, lang)
+    depths = line_depths(ranges, len(lines))
     findings = []
     for idx, raw in enumerate(lines, start=1):
-        line = strip_comment(raw, lang)
+        line = code_lines[idx - 1]
         if not line.strip():
             continue
-        depth = sum(1 for start, end in ranges if start <= idx <= end)
+        depth = depths[idx]
         for rule, priority, pattern, advice in RULES:
             if pattern.search(line):
                 findings.append(
@@ -179,14 +195,13 @@ def scan_lines(lines: list[str], lang: str) -> list[dict]:
                     }
                 )
     for start, _ in ranges:
-        depth = sum(1 for a, b in ranges if a <= start <= b)
-        if depth >= 3:
+        if depths[start] >= 3:
             findings.append(
                 {
                     "rule": "deep-nesting",
                     "priority": 2,
                     "line": start,
-                    "loop_depth": depth,
+                    "loop_depth": depths[start],
                     "code": lines[start - 1].strip()[:160],
                     "advice": "3重以上のループ。計算量の削減やブロッキングを検討",
                 }
