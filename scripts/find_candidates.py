@@ -9,6 +9,7 @@ Comment stripping is approximate, so string literals can cause false hits.
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import os
 import re
@@ -260,7 +261,154 @@ def line_depths(ranges: list[tuple[int, int]], line_count: int) -> list[int]:
     return depths
 
 
+
+def scan_python_ast(lines: list[str]) -> list[dict]:
+    """Find Python candidates from syntax, not text inside strings or comments.
+
+    Returns None for unsupported syntax (e.g. Cython source), handled by the
+    legacy lightweight scanner. AST findings remain heuristic suggestions.
+    """
+    try:
+        root = ast.parse("\n".join(lines))
+    except SyntaxError:
+        return None
+
+    generic = {rule: (priority, advice) for rule, priority, _, advice in RULES}
+    arrays = {rule: (priority, advice) for rule, priority, _, advice, _ in ARRAY_RULES["python"]}
+    specs = {**generic, **arrays}
+    findings: dict[tuple[int, str], dict] = {}
+
+    class Visitor(ast.NodeVisitor):
+        def __init__(self) -> None:
+            self.depth = 0
+
+        def emit(self, node: ast.AST, rule: str) -> None:
+            line = getattr(node, "lineno", None)
+            if line is None or not 1 <= line <= len(lines):
+                return
+            priority, advice = specs[rule]
+            findings.setdefault((line, rule), {
+                "rule": rule,
+                "priority": priority,
+                "line": line,
+                "loop_depth": self.depth,
+                "code": lines[line - 1].strip()[:160],
+                "advice": advice,
+            })
+
+        def loop(self, node: ast.AST) -> None:
+            # The iterable/condition is evaluated before the loop body. It
+            # should not be mistaken for a per-iteration allocation.
+            if isinstance(node, (ast.For, ast.AsyncFor)):
+                self.visit(node.iter)
+                self.visit(node.target)
+            else:
+                self.visit(node.test)
+            self.depth += 1
+            if self.depth >= 3:
+                self.emit(node, "deep-nesting")
+            for statement in node.body:
+                self.visit(statement)
+            self.depth -= 1
+            for statement in node.orelse:
+                self.visit(statement)
+
+        def visit_For(self, node: ast.For) -> None:
+            self.loop(node)
+
+        def visit_AsyncFor(self, node: ast.AsyncFor) -> None:
+            self.loop(node)
+
+        def visit_While(self, node: ast.While) -> None:
+            self.loop(node)
+
+        def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+            previous = self.depth
+            self.depth = 0
+            for decorator in node.decorator_list:
+                self.visit(decorator)
+            for statement in node.body:
+                self.visit(statement)
+            self.depth = previous
+
+        visit_AsyncFunctionDef = visit_FunctionDef
+
+        def visit_ClassDef(self, node: ast.ClassDef) -> None:
+            previous = self.depth
+            self.depth = 0
+            for statement in node.body:
+                self.visit(statement)
+            self.depth = previous
+
+        def visit_Call(self, node: ast.Call) -> None:
+            func = node.func
+            name = func.id if isinstance(func, ast.Name) else None
+            attr = func.attr if isinstance(func, ast.Attribute) else None
+            module = func.value.id if isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name) else None
+            if self.depth:
+                if name in {"malloc", "calloc", "realloc", "list", "dict"}:
+                    self.emit(node, "alloc-in-loop")
+                if name in {"sorted", "sort"} or attr == "sort":
+                    self.emit(node, "sort-in-loop")
+                if module in {"np", "numpy"} and attr in {
+                    "array", "copy", "ascontiguousarray", "asfortranarray",
+                    "concatenate", "stack",
+                }:
+                    self.emit(node, "numpy-copy-in-loop")
+            if name == "pow" and len(node.args) == 2 and isinstance(node.args[1], ast.Constant) and node.args[1].value in (2, 2.0):
+                self.emit(node, "pow2")
+            if module in {"np", "numpy"} and attr == "vectorize":
+                self.emit(node, "numpy-vectorize")
+            if name == "prange":
+                self.emit(node, "numba-parallel-vector-review")
+            self.generic_visit(node)
+
+        def visit_BinOp(self, node: ast.BinOp) -> None:
+            if isinstance(node.op, ast.Div):
+                self.emit(node, "division")
+                if isinstance(node.left, ast.Constant) and node.left.value in (1, 1.0):
+                    self.emit(node, "reciprocal")
+                if isinstance(node.right, ast.Constant) and node.right.value in (2, 2.0):
+                    self.emit(node, "integer-div-2")
+            elif isinstance(node.op, ast.Mod):
+                self.emit(node, "modulo")
+            self.generic_visit(node)
+
+        def visit_Assign(self, node: ast.Assign) -> None:
+            if self.depth and any(
+                isinstance(target, ast.Subscript) and isinstance(target.slice, ast.Name)
+                for target in node.targets
+            ):
+                self.emit(node, "python-elementwise-loop")
+            self.generic_visit(node)
+
+        def visit_AugAssign(self, node: ast.AugAssign) -> None:
+            if self.depth and isinstance(node.target, ast.Subscript) and isinstance(node.target.slice, ast.Name):
+                self.emit(node, "python-elementwise-loop")
+            self.generic_visit(node)
+
+        def visit_Subscript(self, node: ast.Subscript) -> None:
+            if self.depth >= 2 and (
+                isinstance(node.value, ast.Subscript)
+                or isinstance(node.slice, ast.Tuple) and len(node.slice.elts) == 2
+                and all(isinstance(item, ast.Name) for item in node.slice.elts)
+            ):
+                self.emit(node, "array-2d-access")
+            if self.depth and isinstance(node.slice, ast.Tuple) and len(node.slice.elts) == 2:
+                first, second = node.slice.elts
+                if isinstance(first, ast.Slice) and first.lower is None and first.upper is None and first.step is None and isinstance(second, ast.Name):
+                    self.emit(node, "numpy-column-slice")
+            self.generic_visit(node)
+
+    Visitor().visit(root)
+    return list(findings.values())
+
+
 def scan_lines(lines: list[str], lang: str) -> list[dict]:
+    if lang == "python":
+        ast_findings = scan_python_ast(lines)
+        if ast_findings is not None:
+            return ast_findings
     code_lines = [strip_comment(raw, lang) for raw in lines]
     ranges = loop_ranges(code_lines, lang)
     depths = line_depths(ranges, len(lines))
