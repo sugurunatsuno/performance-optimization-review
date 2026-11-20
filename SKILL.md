@@ -2,7 +2,7 @@
 name: performance-optimization-review
 description: "既存コードの実行速度を検査し、プロファイリング、演算回数の削減、ループ不変式の移動、除算と逆数乗算、行優先/列優先のメモリアクセス、キャッシュ効率、アロケーション削減などの高速化候補を安全に実装して検証する。コードの高速化、性能レビュー、ホットループ改善、ベンチマーク、計算結果を維持した最適化を求められたときに使う。Also use for performance work: profiling, hot-loop and memory-access optimization, cache efficiency, reducing allocations, benchmarking before/after changes, or reviewing code for speed. 単なるコード整形や速度に関係しないレビューには使わない。Do not use for formatting-only changes or reviews unrelated to speed."
 metadata:
-  version: "0.2.0"
+  version: "0.3.0"
 ---
 
 # Performance optimization review
@@ -21,6 +21,8 @@ metadata:
 
 ## 作業手順
 
+`scripts/...` のパスはこの SKILL.md のあるディレクトリ基準。`${CLAUDE_SKILL_DIR}` などで絶対パスに解決してから実行する。
+
 ### 対象と制約を確定する
 
 - ユーザーが指定した関数/ファイル/処理を優先する。指定がない場合は呼び出し頻度、実行時間、データサイズから対象を絞る。
@@ -36,7 +38,7 @@ metadata:
 
 ### 候補をスキャンして順位付けする
 
-`references/optimization-catalog.md` を必要な範囲で読む。特に以下を検査する。
+`references/optimization-catalog.md` を必要な範囲で読む。まず `scripts/find_candidates.py` で機械的な候補を洗い出し、その後にコードを読んで偽陽性を落とす。スキャナの出力は候補であり、ボトルネックの根拠ではない。特に以下を検査する。
 
 - 重複計算、不要な乗算や除算、ループ不変式、関数呼び出し、オブジェクト生成。
 - 配列のレイアウトと内側ループの走査方向。行優先なら連続した列を内側、列優先なら連続した行を内側にする。ただし依存関係とループ意味論を確認する。
@@ -60,7 +62,7 @@ metadata:
 
 - ビルド、既存テスト、境界条件テストを実行する。整数、浮動小数点、並列、外部 API ごとの契約を検証する。
 - CPU ウォームアップ、同一最適化フラグ、同一データ、同一実行環境を揃えて複数回計測する。代表値には中央値を使う。
-- CLI 全体の処理時間を比較する必要がある場合は `scripts/benchmark_commands.py` を利用できる。この SKILL.md からの相対パスなので、`${CLAUDE_SKILL_DIR}/scripts/benchmark_commands.py` のようにスキルディレクトリを基準に絶対パスへ解決してから実行する。起動コストが支配的な短い関数には、プロジェクトのマイクロベンチマークを使用する。
+- CLI 全体の処理時間を比較する必要がある場合は `scripts/benchmark_commands.py` を利用できる。起動コストが支配的な短い関数には、プロジェクトのマイクロベンチマークを使用する。
 - 変更後に遅くなった、差がノイズ以下、または意味が変わった場合はその最適化だけを元に戻す。ユーザーの既存変更は元に戻さない。
 - 実行できなかった検証は理由と未検証範囲を記録する。可能性と実測を混同しない。
 

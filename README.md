@@ -12,14 +12,24 @@ references/
   optimization-catalog.md   最適化候補の判定基準
   verification.md           正しさ・ベンチマークの検証基準
 scripts/
+  find_candidates.py        機械的な候補の一次スキャン
   benchmark_commands.py     CLI の前後比較（中央値・IQR・出力一致）
 tests/
+  test_find_candidates.py
   test_benchmark_commands.py
 ```
 
 ## 使い方
 
 `~/.claude/skills/` などのスキルディレクトリに `performance-optimization-review/` を置く。
+
+候補の一次スキャン（ヒューリスティック。ヒットは根拠ではなく、確認する場所の一覧）:
+
+```bash
+python3 "${CLAUDE_SKILL_DIR}/scripts/find_candidates.py" src/ --limit 100
+```
+
+`--json` で機械可読な出力になる。
 
 CLI の前後比較:
 
