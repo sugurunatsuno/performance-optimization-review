@@ -1,0 +1,39 @@
+# performance-optimization-review
+
+計測に基づいて既存コードを高速化する Agent Skill。プロファイリングでボトルネックを特定し、計算量・メモリアクセス・演算・アロケーションの順に候補を検討し、小さな差分で実装して、正しさと速度を同じ条件で検証する。
+
+「速くして」と言われたときに、根拠のない演算子置換ではなく実測を伴う最適化を行うためのスキル。浮動小数点の同値性や行優先/列優先の取り違えなど、高速化で壊しやすい箇所を明示的に禁止・確認する。
+
+## 構成
+
+```
+SKILL.md                    本体（原則、作業手順、報告形式）
+references/
+  optimization-catalog.md   最適化候補の判定基準
+  verification.md           正しさ・ベンチマークの検証基準
+scripts/
+  benchmark_commands.py     CLI の前後比較（中央値・IQR・出力一致）
+tests/
+  test_benchmark_commands.py
+```
+
+## 使い方
+
+`~/.claude/skills/` などのスキルディレクトリに `performance-optimization-review/` を置く。
+
+CLI の前後比較:
+
+```bash
+python3 "${CLAUDE_SKILL_DIR}/scripts/benchmark_commands.py" \
+  --baseline 'python3 app.py --mode before' \
+  --candidate 'python3 app.py --mode after' \
+  --warmup 2 --repeat 9 --verify-stdout
+```
+
+`CLAUDE_SKILL_DIR` が無い環境では、スキルディレクトリの絶対パスに置き換える。
+
+## テスト
+
+```bash
+python3 -m unittest discover -s tests
+```
