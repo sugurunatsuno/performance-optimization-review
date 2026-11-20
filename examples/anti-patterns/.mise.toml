@@ -1,0 +1,5 @@
+[tools]
+java = "21.0.2"
+kotlin = "2.4.21"
+scala = "3.10.1"
+dotnet = "10.0.401"

@@ -20,6 +20,8 @@ tests/
   test_find_candidates.py
   test_detect_profilers.py
   test_benchmark_commands.py
+examples/
+  anti-patterns/            多言語のアンチパターン性能評価
 ```
 
 ## 使い方

@@ -1,0 +1,12 @@
+{
+  "name": "anti-patterns-typescript",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/baseline.js && node dist/optimized.js"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.0"
+  }
+}
