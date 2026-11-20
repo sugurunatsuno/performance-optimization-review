@@ -14,6 +14,7 @@ references/
   verification.md           正しさ・ベンチマークの検証基準
 scripts/
   find_candidates.py        機械的な候補の一次スキャン
+  rank_candidates.py        計測値に基づく候補の優先順位付け
   detect_profilers.py       言語と利用可能な計測ツールの検出、コマンド提案
   benchmark_commands.py     CLI の前後比較（中央値・IQR・出力一致）
 tests/
@@ -66,3 +67,29 @@ python3 "${CLAUDE_SKILL_DIR}/scripts/benchmark_commands.py" \
 ```bash
 python3 -m unittest discover -s tests
 ```
+
+## プロファイル結果に基づく候補の順位付け
+
+`find_candidates.py src/ --json > candidates.json` で候補を保存し、別途実測したプロファイル情報をJSONで用意する。例:
+
+```json
+{
+  "hotspots": [
+    {
+      "file": "src/compute.py", "line": 42,
+      "source": "profiler report / run 2026-11-21",
+      "metrics": {
+        "cpu_time_ms": 120.0,
+        "memory_bandwidth_fraction": 0.91,
+        "cache_miss_fraction": 0.24
+      }
+    }
+  ]
+}
+```
+
+```bash
+python3 scripts/rank_candidates.py --candidates candidates.json --profile profile.json --json
+```
+
+`metrics` の単位はCPU/壁時計時間がms、`*_fraction` が0〜1。対応指標は `cpu_time_ms`, `wall_time_ms`, `memory_bandwidth_fraction`, `cache_miss_fraction`, `allocation_time_fraction`, `io_wait_fraction`, `cpu_utilization_fraction`。上のJSONは形式を示す架空値であり計測済みデータではない。ツールは生のperf/py-spy結果の自動変換までは行わない。高い帯域使用率やキャッシュミスを手がかりに最適化を提案するが、因果関係/改善率の保証ではない。値が無ければ未判定として返す。
