@@ -83,7 +83,15 @@ void f(double *out, const double *a, Point *pts, int n, int stride) {
                 "fn main() {\nfor i in 0..10 {\nvalues[i] = objects[i].x;\n}\n}\n",
                 encoding="utf-8",
             )
-            self.assertEqual(MODULE.scan_file(root / "example.rs") == [], True)
+            self.assertEqual(MODULE.scan_file(root / "example.rs"), [])
+
+    def test_julia_does_not_get_numpy_advice(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            file = Path(folder) / "sample.jl"
+            file.write_text("for i in 1:10\n    out[i] = a[i] + b[i]\nend\n",
+                            encoding="utf-8")
+            rules = {finding["rule"] for finding in MODULE.scan_file(file)}
+            self.assertNotIn("python-elementwise-loop", rules)
 
     def test_cli_json_exposes_new_rules_and_advice(self) -> None:
         with tempfile.TemporaryDirectory() as folder:

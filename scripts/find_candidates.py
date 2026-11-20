@@ -19,7 +19,7 @@ LANG_BY_EXT = {
     ".py": "python",
     ".pyx": "python",
     ".pyi": "python",
-    ".jl": "python",  # indentation blocks, like Python
+    ".jl": "julia",  # keep indentation heuristic, but exclude NumPy rules
     ".c": "c",
     ".h": "c",
     ".cc": "c",
@@ -191,7 +191,7 @@ def indent_of(line: str) -> int:
 
 
 def strip_comment(line: str, lang: str) -> str:
-    if lang == "python":
+    if lang in ("python", "julia"):
         idx = line.find("#")
         return line if idx < 0 else line[:idx]
     for marker in ("//", "/*"):
@@ -220,7 +220,7 @@ def block_end(code_lines: list[str], start: int, lang: str) -> int:
         return match_brace(code_lines, start)
     j = start + 1
     n = len(code_lines)
-    if lang != "python":
+    if lang not in ("python", "julia"):
         while j < n and not code_lines[j].strip():
             j += 1
         return j if j < n else start
