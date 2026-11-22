@@ -32,7 +32,10 @@ def normalized(path: str) -> str:
 def number(value: object, label: str, *, fraction: bool = False) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError(f"{label} must be numeric")
-    x = float(value)
+    try:
+        x = float(value)
+    except OverflowError as exc:
+        raise ValueError(f"{label} must be finite and in valid range") from exc
     if not math.isfinite(x) or x < 0 or (fraction and x > 1):
         raise ValueError(f"{label} must be finite and in valid range")
     return x

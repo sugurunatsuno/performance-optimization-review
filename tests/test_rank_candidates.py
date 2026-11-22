@@ -67,7 +67,8 @@ class ProfileRankingTests(unittest.TestCase):
         self.assertEqual(report["candidates"][0]["evidence"][0]["source"], "narrow")
 
     def test_reject_invalid_metric_and_input(self) -> None:
-        for metric in ({"cpu_time_ms": -1}, {"io_wait_fraction": 1.2},
+        for metric in ({"cpu_time_ms": -1}, {"cpu_time_ms": 10**400},
+                       {"io_wait_fraction": 1.2},
                        {"cache_miss_fraction": float("nan")}, {"bad": 123}):
             with self.subTest(metric=metric):
                 with self.assertRaises(ValueError):
