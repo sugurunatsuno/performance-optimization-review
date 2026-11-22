@@ -90,11 +90,21 @@ for (int i=0; i<n; i++) {
 """
         self.assertNotIn("alloc-in-loop", rules(source, "java"))
 
+    def test_scala_nested_and_flat_array_access(self) -> None:
+        source = """
+for (i <- 0 until n) {
+    for (j <- 0 until n) {
+        val x = matrix(i)(j) + flat(i * n + j)
+    }
+}
+"""
+        self.assertTrue({"array-2d-access", "flattened-2d-index"} <= rules(source, "scala"))
+
     def test_scala_files_are_scanned(self) -> None:
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "sample.scala"
             path.write_text(
-                "for (i <- 0 until n) {\n val x = xs[i].value;\n}\n",
+                "for (i <- 0 until n) {\n val x = xs(i).value\n}\n",
                 encoding="utf-8",
             )
             self.assertIn("aos-field-access",

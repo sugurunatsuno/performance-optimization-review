@@ -228,6 +228,16 @@ ARRAY_RULES["kotlin"].append((
     re.compile(r"\b(?:IntArray|LongArray|DoubleArray|FloatArray)\s*\("),
     "Kotlinのループ内プリミティブ配列確保の可能性。再利用を検討", 1,
 ))
+# Scala applies arrays with parentheses; without type information these
+# patterns can also match function calls, so keep them as review hints.
+ARRAY_RULES["scala"][:len(BRACE_ARRAY_PATTERNS)] = [
+    (rule, priority, re.compile(pattern), advice + "。" + RUNTIME_ADVICE["scala"], depth)
+    for (rule, priority, _, advice, depth), pattern in zip(BRACE_ARRAY_PATTERNS, (
+        r"\b[A-Za-z_]\w*\s*\(\s*\w+\s*\)\s*\.\s*[A-Za-z_]\w*",
+        r"\b[A-Za-z_]\w*\s*\(\s*\w+\s*\)\s*\(\s*\w+\s*\)",
+        r"\b[A-Za-z_]\w*\s*\(\s*\w+\s*\*\s*\w+\s*\+\s*\w+\s*\)",
+    ))
+]
 ARRAY_RULES["scala"].append((
     "scala-array-allocation-in-loop", 2,
     re.compile(r"\bArray\s*\.\s*ofDim\s*(?:\[[^\]]+\])?\s*\("),
