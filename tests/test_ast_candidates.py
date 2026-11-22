@@ -52,6 +52,12 @@ for i in range(8):
         source = "for item in list(a):\n    out[item] = item\n"
         self.assertNotIn("alloc-in-loop", {f["rule"] for f in matches(source)})
 
+    def test_while_condition_is_evaluated_repeatedly(self) -> None:
+        findings = matches("while sorted(items):\n    items.pop()\n")
+        self.assertIn(("sort-in-loop", 1, 1), {
+            (f["rule"], f["line"], f["loop_depth"]) for f in findings
+        })
+
     def test_ast_preserves_array_rules_and_existing_json_shape(self) -> None:
         source = '''
 for i in range(n):

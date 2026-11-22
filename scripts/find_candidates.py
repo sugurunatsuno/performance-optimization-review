@@ -420,14 +420,15 @@ def scan_python_ast(lines: list[str]) -> list[dict] | None:
             })
 
         def loop(self, node: ast.AST) -> None:
-            # The iterable/condition is evaluated before the loop body. It
-            # should not be mistaken for a per-iteration allocation.
+            # A for iterable is evaluated once; a while test and a for
+            # target are evaluated repeatedly.
             if isinstance(node, (ast.For, ast.AsyncFor)):
                 self.visit(node.iter)
-                self.visit(node.target)
-            else:
-                self.visit(node.test)
             self.depth += 1
+            if isinstance(node, ast.While):
+                self.visit(node.test)
+            else:
+                self.visit(node.target)
             if self.depth >= 3:
                 self.emit(node, "deep-nesting")
             for statement in node.body:
