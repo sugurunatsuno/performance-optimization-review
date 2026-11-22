@@ -40,7 +40,7 @@ metadata:
 
 ### 候補をスキャンして順位付けする
 
-`references/optimization-catalog.md` を必要な範囲で読む。配列/並列ループには `references/array-vectorization.md` も参照する。まず `scripts/find_candidates.py` で機械的な候補を洗い出し、その後にコードを読んで偽陽性を落とす。スキャナの出力は候補であり、ボトルネックの根拠ではない。特に以下を検査する。
+`references/optimization-catalog.md` を必要な範囲で読む。配列/並列ループには `references/array-vectorization.md` も参照する。まず `scripts/find_candidates.py` で機械的な候補を洗い出し、その後にコードを読んで偽陽性を落とす。計測結果を構造化できた場合は `scripts/rank_candidates.py` で候補と突き合わせ、未計測の効果を推測せず、実測時間と判定根拠をもとに優先する。スキャナの出力は候補であり、ボトルネックの根拠ではない。特に以下を検査する。
 
 - 重複計算、不要な乗算や除算、ループ不変式、関数呼び出し、オブジェクト生成。
 - 配列のレイアウトと内側ループの走査方向。行優先なら連続した列を内側、列優先なら連続した行を内側にする。ただし依存関係とループ意味論を確認する。
