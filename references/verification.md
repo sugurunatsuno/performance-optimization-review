@@ -46,6 +46,8 @@ python3 "${CLAUDE_SKILL_DIR}/scripts/benchmark_commands.py" \
   --warmup 2 --repeat 9 --verify-stdout
 ```
 
+数値出力が `RESULT <case> <milliseconds> <integer-checksum>` 形式のときは `--verify-numeric-stdout --rtol ... --atol ...` を明示指定できる。名前/順序/整数checksumは厳密一致、時間値は正の有限数のみで許容誤差比較を行う。形式が異なる場合は利用できない。許容誤差は既存の数値契約に基づき決める。
+
 `--verify-stdout` は標準出力だけを比較する。標準エラー出力の変化も契約の一部なら `--verify-stderr` を併用する。
 
 このスクリプトは指定されたコマンドを繰り返し実行する。副作用のあるコマンド、ネットワーク呼び出し、書き込みや課金を伴う処理には使わない。実行前に対象コマンドを確認する。

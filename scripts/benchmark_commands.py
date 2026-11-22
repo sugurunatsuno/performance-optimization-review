@@ -42,6 +42,64 @@ def positive_float(value: str) -> float:
     return n
 
 
+
+def nonnegative_float(value: str) -> float:
+    n = float(value)
+    if not math.isfinite(n) or n < 0:
+        raise argparse.ArgumentTypeError("must be finite and >= 0")
+    return n
+
+
+def parse_numeric_results(output: bytes) -> list[tuple[str, float, int]]:
+    """Numeric verification supports only RESULT name milliseconds checksum."""
+    try:
+        text = output.decode("utf-8", errors="strict")
+    except UnicodeDecodeError as exc:
+        raise RuntimeError("numeric stdout is not UTF-8") from exc
+    rows = []
+    names = set()
+    for line_number, line in enumerate(text.splitlines(), 1):
+        if not line.strip():
+            continue
+        parts = line.split()
+        if len(parts) != 4 or parts[0] != "RESULT":
+            raise RuntimeError(f"numeric stdout line {line_number}: expected RESULT <case> <ms> <integer-checksum>")
+        _, name, ms_text, checksum_text = parts
+        if name in names:
+            raise RuntimeError(f"numeric stdout line {line_number}: duplicate case {name}")
+        names.add(name)
+        try:
+            milliseconds = float(ms_text)
+            if not checksum_text.lstrip("+-").isdigit():
+                raise ValueError("checksum must be integer")
+            checksum = int(checksum_text)
+        except ValueError as exc:
+            raise RuntimeError(f"numeric stdout line {line_number}: invalid numeric value") from exc
+        if not math.isfinite(milliseconds) or milliseconds <= 0:
+            raise RuntimeError(f"numeric stdout line {line_number}: time must be finite and > 0")
+        rows.append((name, milliseconds, checksum))
+    if not rows:
+        raise RuntimeError("numeric stdout has no RESULT cases")
+    return rows
+
+
+def verify_numeric_results(reference: bytes, current: bytes, rtol: float, atol: float) -> None:
+    expected = parse_numeric_results(reference)
+    actual = parse_numeric_results(current)
+    if len(expected) != len(actual):
+        raise RuntimeError(f"numeric stdout case count mismatch: {len(expected)} != {len(actual)}")
+    for index, ((ref_name, ref_ms, ref_sum), (name, ms, checksum)) in enumerate(zip(expected, actual)):
+        if name != ref_name:
+            raise RuntimeError(f"numeric stdout case {index + 1} name mismatch: {ref_name!r} != {name!r}")
+        if checksum != ref_sum:
+            raise RuntimeError(f"numeric stdout {name}: integer checksum mismatch: {ref_sum} != {checksum}")
+        if abs(ms - ref_ms) > atol + rtol * abs(ref_ms):
+            raise RuntimeError(
+                f"numeric stdout {name}: baseline={ref_ms} candidate={ms}, "
+                f"rtol={rtol} atol={atol}"
+            )
+
+
 def run_once(argv: list[str], cwd: Path, timeout: float) -> tuple[float, bytes, bytes]:
     start = time.perf_counter_ns()
     try:
@@ -88,8 +146,21 @@ def main() -> int:
     parser.add_argument("--cwd", type=Path, default=Path.cwd())
     parser.add_argument("--verify-stdout", action="store_true", help="require identical stdout for every run")
     parser.add_argument("--verify-stderr", action="store_true", help="require identical stderr for every run")
+    parser.add_argument("--verify-numeric-stdout", action="store_true",
+                        help="check RESULT <case> <ms> <integer-checksum> with explicit tolerances")
+    parser.add_argument("--rtol", type=nonnegative_float, default=None,
+                        help="relative tolerance for RESULT millisecond values (numeric mode only)")
+    parser.add_argument("--atol", type=nonnegative_float, default=None,
+                        help="absolute tolerance in milliseconds (numeric mode only)")
     parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
     args = parser.parse_args()
+
+    if args.verify_numeric_stdout and args.verify_stdout:
+        parser.error("--verify-numeric-stdout conflicts with --verify-stdout")
+    if not args.verify_numeric_stdout and (args.rtol is not None or args.atol is not None):
+        parser.error("--rtol/--atol require --verify-numeric-stdout")
+    rtol = args.rtol if args.rtol is not None else 0.0
+    atol = args.atol if args.atol is not None else 0.0
 
     if not args.cwd.is_dir():
         parser.error("--cwd must be an existing directory")
@@ -105,7 +176,7 @@ def main() -> int:
 
     samples: dict[str, list[float]] = {"baseline": [], "candidate": []}
     # iteration 0 always runs baseline first, so the reference comes from baseline.
-    expected: dict[str, bytes | None] = {"stdout": None, "stderr": None}
+    expected: dict[str, bytes | None] = {"stdout": None, "stderr": None, "numeric_stdout": None}
     try:
         for iteration in range(args.warmup + args.repeat):
             order = ("baseline", "candidate") if iteration % 2 == 0 else ("candidate", "baseline")
@@ -123,6 +194,18 @@ def main() -> int:
                         raise RuntimeError(
                             f"{stream} mismatch: {name}, iteration {iteration + 1}; timing invalid"
                         )
+                if args.verify_numeric_stdout:
+                    if expected["numeric_stdout"] is None:
+                        # Validate the baseline output as well, not only the candidate.
+                        parse_numeric_results(stdout)
+                        expected["numeric_stdout"] = stdout
+                    else:
+                        try:
+                            verify_numeric_results(expected["numeric_stdout"], stdout, rtol, atol)
+                        except RuntimeError as exc:
+                            raise RuntimeError(
+                                f"numeric stdout mismatch: {name}, iteration {iteration + 1}: {exc}"
+                            ) from exc
                 if iteration >= args.warmup:
                     samples[name].append(elapsed)
     except RuntimeError as exc:
@@ -138,6 +221,8 @@ def main() -> int:
         "repeats": args.repeat,
         "stdout_verified": args.verify_stdout,
         "stderr_verified": args.verify_stderr,
+        "numeric_stdout_verified": args.verify_numeric_stdout,
+        "numeric_tolerances": {"rtol": rtol, "atol": atol} if args.verify_numeric_stdout else None,
         "baseline_median": base,
         "candidate_median": cand,
         "baseline_iqr": base_iqr,
