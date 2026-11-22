@@ -28,17 +28,18 @@ LANG_BY_EXT = {
     ".cxx": "c",
     ".hpp": "c",
     ".hh": "c",
-    ".rs": "braces",
-    ".go": "braces",
-    ".java": "braces",
-    ".js": "braces",
-    ".jsx": "braces",
-    ".ts": "braces",
-    ".tsx": "braces",
-    ".cs": "braces",
-    ".kt": "braces",
-    ".kts": "braces",
-    ".swift": "braces",
+    ".rs": "rust",
+    ".go": "go",
+    ".scala": "scala",
+    ".java": "java",
+    ".js": "javascript",
+    ".jsx": "javascript",
+    ".ts": "typescript",
+    ".tsx": "typescript",
+    ".cs": "csharp",
+    ".kt": "kotlin",
+    ".kts": "kotlin",
+    ".swift": "swift",
 }
 SKIP_DIRS = {
     ".git", ".hg", ".svn", "node_modules", "target", "build", "dist", "out",
@@ -183,6 +184,128 @@ ARRAY_RULES = {
         ),
     ],
 }
+
+
+# These are review hints, not statements about object layout or aliasing.
+BRACE_ARRAY_PATTERNS = [
+    ("aos-field-access", 2,
+     re.compile(r"\b[A-Za-z_]\w*\s*\[[^\]\n]+\]\s*(?:\.|->)\s*[A-Za-z_]\w*"),
+     "AoSフィールド走査の可能性。SoAとの差を実測", 1),
+    ("array-2d-access", 2,
+     re.compile(r"\b[A-Za-z_]\w*\s*\[[^\]\n]+\]\s*\[[^\]\n]+\]"),
+     "多次元配列の実配置/走査順/境界チェックを確認", 2),
+    ("flattened-2d-index", 2,
+     re.compile(r"\b[A-Za-z_]\w*\s*\[\s*\w+\s*\*\s*\w+\s*\+\s*\w+\s*\]"),
+     "フラット配列の連続次元とループ順を確認", 2),
+]
+RUNTIME_ADVICE = {
+    "rust": "Rustの所有権/Vec/スライス/Releaseビルドを確認",
+    "java": "JavaのJIT/オブジェクト配列/boxing/GCを確認",
+    "kotlin": "Kotlinのプリミティブ配列/boxing/JITを確認",
+    "scala": "ScalaのArray/コレクション/boxing/JITを確認",
+    "csharp": "C#のstruct[]/class[]/JIT/GCを確認",
+    "javascript": "JavaScriptのTypedArray/通常配列/JIT/GCを確認",
+    "typescript": "TypeScript実行時のTypedArray/通常配列/JIT/GCを確認",
+}
+for _lang, _advice in RUNTIME_ADVICE.items():
+    ARRAY_RULES[_lang] = [
+        (rule, priority, pattern, advice + "。" + _advice, min_depth)
+        for rule, priority, pattern, advice, min_depth in BRACE_ARRAY_PATTERNS
+    ]
+ARRAY_RULES["rust"].append((
+    "rust-buffer-copy-in-loop", 2,
+    re.compile(r"\.\s*(?:to_vec|clone)\s*\(|\bVec::with_capacity\s*\("),
+    "RustのVec/スライスの複製/確保の可能性。所有権と型を確認", 1,
+))
+for _lang in ("java", "kotlin", "scala", "csharp"):
+    ARRAY_RULES[_lang].append((
+        "managed-boxing-in-loop", 3,
+        re.compile(r"\b(?:Integer|Long|Double)\.valueOf\s*\(|\.boxed\s*\("),
+        "ボックス化の可能性。型/JIT/GCを確認", 1,
+    ))
+ARRAY_RULES["kotlin"].append((
+    "kotlin-array-allocation-in-loop", 2,
+    re.compile(r"\b(?:IntArray|LongArray|DoubleArray|FloatArray)\s*\("),
+    "Kotlinのループ内プリミティブ配列確保の可能性。再利用を検討", 1,
+))
+# Scala applies arrays with parentheses; without type information these
+# patterns can also match function calls, so keep them as review hints.
+ARRAY_RULES["scala"][:len(BRACE_ARRAY_PATTERNS)] = [
+    (rule, priority, re.compile(pattern), advice + "。" + RUNTIME_ADVICE["scala"], depth)
+    for (rule, priority, _, advice, depth), pattern in zip(BRACE_ARRAY_PATTERNS, (
+        r"\b[A-Za-z_]\w*\s*\(\s*\w+\s*\)\s*\.\s*[A-Za-z_]\w*",
+        r"\b[A-Za-z_]\w*\s*\(\s*\w+\s*\)\s*\(\s*\w+\s*\)",
+        r"\b[A-Za-z_]\w*\s*\(\s*\w+\s*\*\s*\w+\s*\+\s*\w+\s*\)",
+    ))
+]
+ARRAY_RULES["scala"].append((
+    "scala-array-allocation-in-loop", 2,
+    re.compile(r"\bArray\s*\.\s*ofDim\s*(?:\[[^\]]+\])?\s*\("),
+    "ScalaのArray.ofDim反復確保の可能性。再利用を検討", 1,
+))
+for _lang in ("javascript", "typescript"):
+    ARRAY_RULES[_lang].append((
+        "js-array-copy-in-loop", 2,
+        re.compile(r"\bArray\.from\s*\(|\.\s*(?:slice|concat)\s*\("),
+        "JS/TSの配列コピーの可能性。TypedArray/通常配列/副作用を確認", 1,
+    ))
+
+
+def clean_brace_source(lines: list[str]) -> list[str]:
+    """Mask comments and strings before simple brace-language scanning.
+
+    This is not a complete lexer: raw strings, nested comments and template
+    interpolation still need source review. Preserve line numbers and braces
+    that are actually code.
+    """
+    cleaned = []
+    comment = False
+    quote = None
+    escaped = False
+    for line in lines:
+        chars = []
+        i = 0
+        while i < len(line):
+            ch = line[i]
+            next_char = line[i + 1] if i + 1 < len(line) else ""
+            if comment:
+                if ch == "*" and next_char == "/":
+                    chars.extend("  ")
+                    comment = False
+                    i += 2
+                else:
+                    chars.append(" ")
+                    i += 1
+            elif quote is not None:
+                chars.append(" ")
+                if escaped:
+                    escaped = False
+                elif ch == "\\":
+                    escaped = True
+                elif ch == quote:
+                    quote = None
+                i += 1
+            elif ch == "/" and next_char == "/":
+                chars.extend(" " * (len(line) - i))
+                break
+            elif ch == "/" and next_char == "*":
+                chars.extend("  ")
+                comment = True
+                i += 2
+            elif ch in ('"', "'", chr(96)):
+                quote = ch
+                chars.append(" ")
+                i += 1
+            else:
+                chars.append(ch)
+                i += 1
+        # Newline ends ordinary quoted strings, not JS template strings.
+        if quote is not None and quote != chr(96):
+            quote = None
+            escaped = False
+        cleaned.append("".join(chars))
+    return cleaned
+
 
 LOOP_RE = re.compile(r"\b(?:for|while)\b")
 
@@ -410,7 +533,8 @@ def scan_lines(lines: list[str], lang: str) -> list[dict]:
         ast_findings = scan_python_ast(lines)
         if ast_findings is not None:
             return ast_findings
-    code_lines = [strip_comment(raw, lang) for raw in lines]
+    code_lines = ([strip_comment(raw, lang) for raw in lines]
+                  if lang in ("python", "julia") else clean_brace_source(lines))
     ranges = loop_ranges(code_lines, lang)
     depths = line_depths(ranges, len(lines))
     findings = []
@@ -420,6 +544,8 @@ def scan_lines(lines: list[str], lang: str) -> list[dict]:
             continue
         depth = depths[idx]
         for rule, priority, pattern, advice in RULES:
+            if rule in {"alloc-in-loop", "sort-in-loop"} and depth == 0:
+                continue
             if pattern.search(line):
                 findings.append(
                     {

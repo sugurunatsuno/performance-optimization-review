@@ -43,7 +43,9 @@ python3 "${CLAUDE_SKILL_DIR}/scripts/detect_profilers.py" . --json
 
 候補の一次スキャン（ヒューリスティック。ヒットは根拠ではなく、確認する場所の一覧）:
 
-配列ループ、`np.vectorize`、ループ内の配列コピー、列方向アクセス、AoS のフィールド参照、OpenMP / Numba の並列ループなどもレビュー候補として検出する。速度向上を自動判定/自動変換するものではない。
+配列ループ、`np.vectorize`、ループ内の配列コピー、列方向アクセス、AoS のフィールド参照、OpenMP / Numba の並列ループなどもレビュー候補として検出する。Java/C#/Rust/JavaScript/TypeScript/Kotlin/Scalaでも、配列の多次元/フラットアクセス、AoSフィールド参照、ループ内の確保/コピーを候補として検出する。速度向上を自動判定/自動変換するものではない。
+
+追加言語の検出には正規表現を使い、所有権・JIT・GC・ボックス化・TypedArray など、言語ごとの確認点を示す。Scala の `.scala` も検索対象に含む。型、データ配置、依存関係は確定できず、Scala の配列アクセスと関数呼び出しのように構文が同じ場合もあるため、候補ごとにコードと計測結果を確認する。
 
 ```bash
 python3 "${CLAUDE_SKILL_DIR}/scripts/find_candidates.py" src/ --limit 100
